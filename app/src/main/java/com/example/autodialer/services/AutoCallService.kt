@@ -6,12 +6,14 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.database.Cursor
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.provider.CallLog
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.example.autodialer.db.AppDatabase
@@ -53,21 +55,20 @@ class AutoCallService : LifecycleService() {
                     stopSelf()
                 }
             }
+
             subscribeToCallStatesAndStartCall()
         }
         return super.onStartCommand(intent, flags, startId)
     }
 
     private fun subscribeToCallStatesAndStartCall() {
-        val telephonyManager: TelephonyManager =
-            getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        telephonyManager.subscribeToCallEndCallback {
+        subscribeToCallEndCallback {
             job?.cancel()
             job = lifecycleScope.launchWhenStarted {
-                delay(1000)
+                delay(2000)
                 saveUserToDB(
                     users[currentIndex].copy(
-                        durationInMs = getCallDurationFor(users[currentIndex].number).toLong()
+                        durationInSec = getCallDurationFor(users[currentIndex].number).toLong()
                     )
                 )
 
@@ -116,7 +117,7 @@ class AutoCallService : LifecycleService() {
         }
     }
 
-    private fun startCall(number: Long) {
+    private fun startCall(number: String) {
         startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         })
@@ -128,7 +129,7 @@ class AutoCallService : LifecycleService() {
         )
     }
 
-    private fun getCallDurationFor(number: Long): String {
+    private fun getCallDurationFor(number: String): String {
         val managedCursor: Cursor = contentResolver.query(
             CallLog.Calls.CONTENT_URI,
             null, null, null, CallLog.Calls.DATE + " DESC"
@@ -138,8 +139,8 @@ class AutoCallService : LifecycleService() {
         val durationColumnIndex = managedCursor.getColumnIndex(CallLog.Calls.DURATION)
 
         while (managedCursor.moveToNext()) {
-            val phNumber = managedCursor.getString(numberColumnIndex)
-            if (phNumber.equals(number.toString())) {
+            val phNumber = managedCursor.getString(numberColumnIndex).replace(" ","")
+            if (phNumber == number.replace(" ","")) {
                 val duration = managedCursor.getString(durationColumnIndex)
                 managedCursor.close()
                 return duration

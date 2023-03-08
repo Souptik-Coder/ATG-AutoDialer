@@ -1,106 +1,117 @@
 package com.example.autodialer.ui
 
+import android.Manifest.permission.*
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
-import com.example.autodialer.R
-import com.example.autodialer.db.AppDatabase
-import com.example.autodialer.models.User
-import com.google.android.material.button.MaterialButton
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.nio.charset.Charset
+import com.example.autodialer.ViewModel
+import com.example.autodialer.databinding.ActivityMainBinding
+import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : AppCompatActivity() {
+
+    private val viewModel: ViewModel by viewModels()
+    private lateinit var binding: ActivityMainBinding
+
+    private val requestSinglePermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) {
+            it.forEach { (_, isGranted) ->
+                if (!isGranted) {
+                    Toast.makeText(
+                        this,
+                        "All permissions are required for app to work",
+                        Toast.LENGTH_LONG
+                    )
+                        .show()
+                }
+            }
+        }
 
     private val csvPickerLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri == null)
                 Toast.makeText(this, "No file selected.Please try again", Toast.LENGTH_LONG).show()
             else
-                readCSVFromURI(uri)
+                viewModel.readCSVFromURI(uri)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+
+        setContentView(binding.root)
 
         requestAppPermissionsIfNeeded()
 
-        findViewById<MaterialButton>(R.id.upload_btn).setOnClickListener {
-            csvPickerLauncher.launch("text/*")
-        }
-    }
-
-    private fun readCSVFromURI(uri: Uri) {
-        val reader = BufferedReader(
-            InputStreamReader(
-                contentResolver.openInputStream(uri),
-                Charset.forName("UTF-8")
-            )
-        )
-        try {
-            reader.readLines().forEach {
-                val items = it.split(",")
-                saveUserToDB(User(items[0], items[1].toLong()))
-            }
-            startResultActivity()
-            finish()
-        }catch (e: Exception) {
-                Toast.makeText(this, "Invalid CSV file ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+        binding.uploadBtn.setOnClickListener {
+            csvPickerLauncher.launch("*/*")
         }
 
-    private fun saveUserToDB(user: User) {
         lifecycleScope.launchWhenStarted {
-            AppDatabase.getInstance(this@MainActivity).userDao().addOrUpdateUser(
-                user
-            )
+            viewModel.isFileValid.collectLatest {
+                if (it == null) return@collectLatest
+                else if (it) {
+                    startResultActivity()
+                    binding.fileInvalidLayout.visibility = View.GONE
+                } else binding.fileInvalidLayout.visibility = View.VISIBLE
+            }
+
+        }
+        lifecycleScope.launchWhenStarted {
+            viewModel.allUsers.collectLatest { if (it.isNotEmpty()) startResultActivity() }
+        }
+
+        lifecycleScope.launchWhenStarted {
+            viewModel.isFileValid.collectLatest {
+                binding.progressBar.isVisible = it ?: false
+            }
         }
     }
+
 
     private fun requestAppPermissionsIfNeeded() {
         if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
+            Toast.makeText(this, "Allow AutoDialer to draw over other apps", Toast.LENGTH_LONG)
+                .show()
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
             )
-            startActivityForResult(intent, 1)
-        }
-        if (ContextCompat.checkSelfPermission(
-                this,
-                "android.permission.CALL_PHONE"
-            )
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf("android.permission.CALL_PHONE"), 2
-            )
-
         }
 
         if (ContextCompat.checkSelfPermission(
                 this,
-                "android.permission.READ_CALL_LOG"
+                READ_CALL_LOG
             )
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-
-            ActivityCompat.requestPermissions(
+            != PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
                 this,
-                arrayOf("android.permission.READ_CALL_LOG"), 3
+                CALL_PHONE
+            ) != PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+                this,
+                READ_PHONE_STATE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestSinglePermissionLauncher.launch(
+                arrayOf(
+                    READ_CALL_LOG,
+                    CALL_PHONE,
+                    READ_PHONE_STATE
+                )
             )
-
         }
     }
 

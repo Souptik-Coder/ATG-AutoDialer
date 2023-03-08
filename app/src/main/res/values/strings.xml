@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">AutoDialer</string>
-    <string name="upload_file">Upload file</string>
     <string name="restart">Restart</string>
     <string name="export">Export</string>
+    <string name="file_format_is_not_valid">File format is not valid</string>
+    <string name="upload_file">Upload file |</string>
 </resources>
